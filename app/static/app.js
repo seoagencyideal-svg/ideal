@@ -1,0 +1,7 @@
+let current={};
+async function api(path,opts={}){const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});return r.json()}
+async function init(){const h=await api('/api/health');document.getElementById('status').textContent=h.ok?'API Online':'API Error';document.getElementById('status').style.color=h.gemini_configured?'#77e3a8':'#f6c33b'}
+function payload(){return {name:document.getElementById('name').value,category:document.getElementById('category').value,city:document.getElementById('city').value,website:document.getElementById('website').value,phone:document.getElementById('phone').value,notes:document.getElementById('notes').value}}
+async function analyze(){current=payload();if(!current.name){alert('Business name required');return}const x=await api('/api/score',{method:'POST',body:JSON.stringify(current)});document.getElementById('score').textContent=x.score;document.getElementById('priority').textContent=x.priority+' priority';document.getElementById('reasons').innerHTML=x.reasons.map(r=>'• '+r).join('<br>');document.getElementById('leads').textContent='1';document.getElementById('high').textContent=x.score>=75?'1':'0'}
+async function generateAI(){if(!current.name)current=payload();const x=await api('/api/gemini',{method:'POST',body:JSON.stringify(current)});document.getElementById('ai').textContent=x.ok?x.text:'AI: '+x.error}
+init();
