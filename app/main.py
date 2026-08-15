@@ -2,7 +2,7 @@ import os
 import json
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,27 +19,95 @@ class Business(BaseModel):
     phone: str = ""
     notes: str = ""
 
+class LeadSearch(BaseModel):
+    category: str
+    city: str
+    limit: int = 10
+
 @app.get("/")
 def home():
     return FileResponse("app/static/index.html")
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "gemini_configured": bool(os.getenv("GEMINI_API_KEY")), "pexels_configured": bool(os.getenv("PEXELS_API_KEY"))}
+    return {
+        "ok": True,
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "pexels_configured": bool(os.getenv("PEXELS_API_KEY")),
+        "google_places_configured": bool(os.getenv("GOOGLE_PLACES_API_KEY")),
+    }
 
 @app.post("/api/score")
 def score(b: Business):
-    score = 40
-    if not b.website: score += 35
-    if b.phone: score += 5
-    if b.category: score += 5
-    if b.city: score += 5
-    if b.notes: score += 10
-    score = min(score, 100)
+    value = 40
     reasons = []
-    if not b.website: reasons.append("No website supplied")
-    if b.website: reasons.append("Website exists — run a deeper audit next")
-    return {"score": score, "priority": "High" if score >= 75 else "Medium" if score >= 50 else "Low", "reasons": reasons}
+    if not b.website:
+        value += 35
+        reasons.append("No website supplied")
+    else:
+        reasons.append("Website exists — deeper audit recommended")
+    if b.phone:
+        value += 5
+    if b.category:
+        value += 5
+    if b.city:
+        value += 5
+    if b.notes:
+        value += 10
+    value = min(value, 100)
+    return {
+        "score": value,
+        "priority": "High" if value >= 75 else "Medium" if value >= 50 else "Low",
+        "reasons": reasons,
+    }
+
+@app.post("/api/leads/search")
+async def search_leads(req: LeadSearch):
+    key = os.getenv("GOOGLE_PLACES_API_KEY")
+    if not key:
+        return {"ok": False, "error": "GOOGLE_PLACES_API_KEY is not configured", "leads": []}
+    limit = max(1, min(req.limit, 20))
+    field_mask = ",".join([
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.primaryTypeDisplayName",
+        "places.websiteUri",
+        "places.nationalPhoneNumber",
+        "places.rating",
+        "places.userRatingCount",
+        "places.googleMapsUri",
+    ])
+    payload = {
+        "textQuery": f"{req.category} in {req.city}",
+        "pageSize": limit,
+        "includePureServiceAreaBusinesses": True,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers={"Content-Type": "application/json", "X-Goog-Api-Key": key, "X-Goog-FieldMask": field_mask},
+            json=payload,
+        )
+    if response.status_code >= 400:
+        return {"ok": False, "error": response.text, "leads": []}
+    data = response.json()
+    leads = []
+    for place in data.get("places", []):
+        display = place.get("displayName", {})
+        leads.append({
+            "id": place.get("id", ""),
+            "name": display.get("text", "Unknown business"),
+            "category": place.get("primaryTypeDisplayName", {}).get("text", req.category),
+            "address": place.get("formattedAddress", ""),
+            "website": place.get("websiteUri", ""),
+            "phone": place.get("nationalPhoneNumber", ""),
+            "rating": place.get("rating"),
+            "reviews": place.get("userRatingCount"),
+            "maps_url": place.get("googleMapsUri", ""),
+            "website_missing": not bool(place.get("websiteUri")),
+        })
+    return {"ok": True, "count": len(leads), "leads": leads}
 
 @app.post("/api/gemini")
 async def gemini(b: Business):
@@ -59,9 +127,14 @@ async def gemini(b: Business):
 @app.get("/api/photos")
 async def photos(q: str):
     key = os.getenv("PEXELS_API_KEY")
-    if not key: return {"ok": False, "error": "PEXELS_API_KEY is not configured", "photos": []}
+    if not key:
+        return {"ok": False, "error": "PEXELS_API_KEY is not configured", "photos": []}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get("https://api.pexels.com/v1/search", headers={"Authorization": key}, params={"query": q, "per_page": 12})
+        r = await client.get(
+            "https://api.pexels.com/v1/search",
+            headers={"Authorization": key},
+            params={"query": q, "per_page": 12},
+        )
         r.raise_for_status()
         data = r.json()
     return {"ok": True, "photos": [{"id": p["id"], "url": p["src"]["large"]} for p in data.get("photos", [])]}
