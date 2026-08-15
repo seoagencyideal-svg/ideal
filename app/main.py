@@ -116,9 +116,13 @@ async def gemini(b: Business):
         return {"ok": False, "error": "GEMINI_API_KEY is not configured"}
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     prompt = f"""You are an expert local SEO strategist for Ideal SEO Agency. Analyze this prospect and return concise JSON with keys: summary, website_opportunities, seo_opportunities, suggested_services, outreach_subject, outreach_message. Do not invent facts. Business: {b.model_dump_json()}"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     async with httpx.AsyncClient(timeout=45) as client:
-        r = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
+        r = await client.post(
+            url,
+            headers={"Content-Type": "application/json", "x-goog-api-key": key},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+        )
         r.raise_for_status()
         data = r.json()
     text = data["candidates"][0]["content"]["parts"][0]["text"]
