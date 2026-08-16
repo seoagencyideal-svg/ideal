@@ -115,7 +115,10 @@ async def gemini(b: Business):
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         return {"ok": False, "error": "GEMINI_API_KEY is not configured"}
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # Gemini 2.5 Flash has been scheduled for shutdown. Use the current stable
+    # Gemini 3.6 Flash model unless an explicit GEMINI_MODEL is supplied.
+    model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     prompt = f"""You are an expert local SEO strategist for Ideal SEO Agency. Analyze this prospect and return concise JSON with keys: summary, website_opportunities, seo_opportunities, suggested_services, outreach_subject, outreach_message. Do not invent facts. Business: {b.model_dump_json()}"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     try:
