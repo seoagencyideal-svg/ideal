@@ -56,6 +56,7 @@ def score(b: Business):
         value += 10
     value = min(value, 100)
     return {
+        "ok": True,
         "score": value,
         "priority": "High" if value >= 75 else "Medium" if value >= 50 else "Low",
         "reasons": reasons,
@@ -117,15 +118,29 @@ async def gemini(b: Business):
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     prompt = f"""You are an expert local SEO strategist for Ideal SEO Agency. Analyze this prospect and return concise JSON with keys: summary, website_opportunities, seo_opportunities, suggested_services, outreach_subject, outreach_message. Do not invent facts. Business: {b.model_dump_json()}"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    async with httpx.AsyncClient(timeout=45) as client:
-        r = await client.post(
-            url,
-            headers={"Content-Type": "application/json", "x-goog-api-key": key},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-        )
-        r.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            r = await client.post(
+                url,
+                headers={"Content-Type": "application/json", "x-goog-api-key": key},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+            )
+    except httpx.RequestError as e:
+        return {"ok": False, "error": f"Gemini network error: {e}"}
+
+    if r.status_code >= 400:
+        try:
+            error_data = r.json()
+            message = error_data.get("error", {}).get("message") or r.text
+        except Exception:
+            message = r.text
+        return {"ok": False, "error": f"Gemini API HTTP {r.status_code}: {message}"}
+
+    try:
         data = r.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        return {"ok": False, "error": f"Unexpected Gemini response: {e}"}
     return {"ok": True, "text": text}
 
 @app.get("/api/photos")
