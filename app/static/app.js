@@ -1,18 +1,37 @@
 let current={};
 let scoreRequestInFlight=false;
 
-async function api(path,opts={}){const r=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});let data;try{data=await r.json()}catch(e){data={ok:false,error:`HTTP ${r.status}`}}if(!r.ok){throw new Error(data.error||data.detail||`Request failed (${r.status})`)}return data}
+async function api(path,opts={}){const r=await fetch(path,{headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts});let data;try{data=await r.json()}catch(e){data={ok:false,error:`HTTP ${r.status}`}}if(!r.ok){throw new Error(data.error||data.detail||`Request failed (${r.status})`)}return data}
 async function init(){try{const h=await api('/api/health');document.getElementById('status').textContent=h.ok?'API Online':'API Error';document.getElementById('status').style.color=h.ok?'#77e3a8':'#f6c33b';if(!h.google_places_configured)document.getElementById('leadMessage').textContent='Google Places API key is not configured on the server yet.'}catch(e){document.getElementById('status').textContent='API Error';document.getElementById('status').style.color='#f6c33b'}}
 function payload(){return {name:document.getElementById('name').value.trim(),category:document.getElementById('category').value.trim(),city:document.getElementById('city').value.trim(),website:document.getElementById('website').value.trim(),phone:document.getElementById('phone').value.trim(),notes:document.getElementById('notes').value.trim()}}
 async function analyzeLead(){
-if(scoreRequestInFlight)return;
-const button=document.getElementById('analyzeLeadBtn');const reasons=document.getElementById('reasons');const priority=document.getElementById('priority');const score=document.getElementById('score');
-current=payload();
-if(!current.name){reasons.textContent='Business name required';priority.textContent='Waiting';return}
-scoreRequestInFlight=true;button.disabled=true;button.textContent='Analyzing…';priority.textContent='Analyzing…';reasons.textContent='Sending lead to scoring engine…';
-try{const x=await api('/api/score',{method:'POST',body:JSON.stringify(current)});if(!x.ok)throw new Error(x.error||'Score analysis failed');score.textContent=String(x.score);priority.textContent=x.priority+' priority';reasons.innerHTML=(x.reasons||[]).map(r=>'• '+escapeHtml(r)).join('<br>')||'Analysis completed.';document.getElementById('ai').textContent='';}
-catch(e){score.textContent='—';priority.textContent='Error';reasons.textContent='Analysis error: '+e.message;}
-finally{scoreRequestInFlight=false;button.disabled=false;button.textContent='Analyze Lead'}
+  const button=document.getElementById('analyzeLeadBtn');
+  const reasons=document.getElementById('reasons');
+  const priority=document.getElementById('priority');
+  const score=document.getElementById('score');
+  if(!button||!reasons||!priority||!score){alert('Analysis panel is not loaded correctly. Please refresh the page.');return}
+  if(scoreRequestInFlight)return;
+  current=payload();
+  if(!current.name){reasons.textContent='Business name required';priority.textContent='Waiting';return}
+  scoreRequestInFlight=true;
+  button.disabled=true;
+  button.textContent='Analyzing…';
+  priority.textContent='Analyzing…';
+  reasons.textContent='Sending lead to scoring engine…';
+  try{
+    const x=await api('/api/score',{method:'POST',body:JSON.stringify(current)});
+    if(!x||x.ok!==true)throw new Error(x?.error||'Score analysis failed');
+    score.textContent=String(x.score ?? '—');
+    priority.textContent=(x.priority||'Unknown')+' priority';
+    reasons.innerHTML=(Array.isArray(x.reasons)?x.reasons:[]).map(r=>'• '+escapeHtml(r)).join('<br>')||'Analysis completed.';
+    const ai=document.getElementById('ai');if(ai)ai.textContent='';
+  }catch(e){
+    score.textContent='—';priority.textContent='Error';reasons.textContent='Analysis error: '+e.message;
+  }finally{
+    scoreRequestInFlight=false;
+    button.disabled=false;
+    button.textContent='Analyze Lead';
+  }
 }
 async function generateAI(){if(!current.name)current=payload();if(!current.name){alert('Business name required');return}const button=document.getElementById('generateAiBtn');const old=button.textContent;button.disabled=true;button.textContent='Generating…';document.getElementById('ai').textContent='Generating AI sales analysis…';try{const x=await api('/api/gemini',{method:'POST',body:JSON.stringify(current)});document.getElementById('ai').textContent=x.ok?x.text:'AI: '+(x.error||'Unknown error');}catch(e){document.getElementById('ai').textContent='AI error: '+e.message;}finally{button.disabled=false;button.textContent=old}}
 function setActive(id){document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));const el=document.getElementById(id);if(el)el.classList.add('active')}
