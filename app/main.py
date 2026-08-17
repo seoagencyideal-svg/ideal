@@ -18,6 +18,8 @@ class Business(BaseModel):
     website: str = ""
     phone: str = ""
     notes: str = ""
+    rating: float | None = None
+    reviews: int | None = None
 
 class LeadSearch(BaseModel):
     category: str
@@ -39,26 +41,52 @@ def health():
 
 @app.post("/api/score")
 def score(b: Business):
-    value = 40
+    # Opportunity score = how much room there appears to be for SEO/sales work.
+    # It is intentionally different from a business-quality score: a strong
+    # reputation should normally reduce the immediate sales opportunity.
+    value = 25
     reasons = []
+
     if not b.website:
-        value += 35
-        reasons.append("No website supplied")
+        value += 40
+        reasons.append("No website supplied — major website opportunity")
     else:
         reasons.append("Website exists — deeper audit recommended")
-    if b.phone:
+
+    if b.rating is not None:
+        if b.rating < 4.0:
+            value += 15
+            reasons.append(f"Google rating is {b.rating:.1f} — reputation improvement opportunity")
+        elif b.rating < 4.5:
+            value += 8
+            reasons.append(f"Google rating is {b.rating:.1f} — room to improve reputation")
+        else:
+            reasons.append(f"Strong Google rating ({b.rating:.1f}) — reputation is a strength")
+
+    if b.reviews is not None:
+        if b.reviews < 25:
+            value += 10
+            reasons.append(f"Only {b.reviews} reviews — review growth opportunity")
+        elif b.reviews < 100:
+            value += 5
+            reasons.append(f"{b.reviews} reviews — more review volume could help")
+        else:
+            reasons.append(f"Strong review volume ({b.reviews})")
+
+    if not b.phone:
         value += 5
-    if b.category:
-        value += 5
-    if b.city:
-        value += 5
-    if b.notes:
-        value += 10
+        reasons.append("Phone number is missing")
+
+    if not b.category:
+        value += 3
+    if not b.city:
+        value += 3
+
     value = min(value, 100)
     return {
         "ok": True,
         "score": value,
-        "priority": "High" if value >= 75 else "Medium" if value >= 50 else "Low",
+        "priority": "High" if value >= 70 else "Medium" if value >= 45 else "Low",
         "reasons": reasons,
     }
 
@@ -115,9 +143,6 @@ async def gemini(b: Business):
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         return {"ok": False, "error": "GEMINI_API_KEY is not configured"}
-
-    # Gemini 2.5 Flash has been scheduled for shutdown. Use the current stable
-    # Gemini 3.6 Flash model unless an explicit GEMINI_MODEL is supplied.
     model = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     prompt = f"""You are an expert local SEO strategist for Ideal SEO Agency. Analyze this prospect and return concise JSON with keys: summary, website_opportunities, seo_opportunities, suggested_services, outreach_subject, outreach_message. Do not invent facts. Business: {b.model_dump_json()}"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
