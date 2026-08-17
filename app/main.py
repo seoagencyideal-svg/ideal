@@ -136,6 +136,7 @@ async def audit(b: Business):
     title = (_tag_values(html, "title") or [""])[0]
     descriptions = _tag_values(html, "meta", "name", "description")
     h1s = _tag_values(html, "h1")
+    h1_count = len(h1s)
     canonical = ""
     cm = re.search(r"<link\b[^>]*rel\s*=\s*[\"'][^\"']*canonical[^\"']*[\"'][^>]*>", html, re.I)
     if cm:
@@ -170,12 +171,15 @@ async def audit(b: Business):
         issues.append(f"Meta description length is {len(descriptions[0])} characters; review it")
     else:
         strengths.append("Meta description is present with a reasonable length")
-    if len(h1s) == 0:
+
+    # Keep the H1 metric and H1 findings driven by the exact same count.
+    if h1_count == 0:
         issues.append("No H1 heading detected")
-    elif len(h1s) > 1:
-        issues.append(f"Multiple H1 headings detected ({len(h1s)})")
+    elif h1_count > 1:
+        issues.append(f"Multiple H1 headings detected ({h1_count})")
     else:
         strengths.append("One H1 heading detected")
+
     if not viewport:
         issues.append("Mobile viewport meta tag is missing")
     else:
@@ -206,7 +210,7 @@ async def audit(b: Business):
         "response_time_ms": elapsed_ms,
         "score": score,
         "priority": priority,
-        "metrics": {"title": title, "title_length": len(title), "meta_description": descriptions[0] if descriptions else "", "h1_count": len(h1s), "h1s": h1s[:5], "viewport": viewport, "canonical": canonical, "robots": robots_response.status_code < 400, "sitemap": sitemap_response.status_code < 400, "word_count": word_count, "internal_links": internal, "external_links": external, "content_type": content_type},
+        "metrics": {"title": title, "title_length": len(title), "meta_description": descriptions[0] if descriptions else "", "h1_count": h1_count, "h1s": h1s[:5], "viewport": viewport, "canonical": canonical, "robots": robots_response.status_code < 400, "sitemap": sitemap_response.status_code < 400, "word_count": word_count, "internal_links": internal, "external_links": external, "content_type": content_type},
         "issues": issues,
         "strengths": strengths,
         "note": "This is a live technical/on-page snapshot, not a substitute for a full crawler, backlink audit, or Google Search Console data."
