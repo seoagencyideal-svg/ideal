@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile Python
-        run: python -m py_compile app/main.py
+        run: python -m py_compile app/main.py app/demo_template.py
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
