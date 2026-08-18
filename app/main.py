@@ -202,15 +202,8 @@ async def gemini(b: Business):
     return {'ok': True, 'text': text}
 
 def demo_html(data):
-    b = data['business']; brief = data.get('brief') or {}
-    photos = [x for x in b.get('photos', []) if isinstance(x, str)][:5]
-    hero = photos[0] if photos else ''
-    phone = b.get('phone', ''); rating = b.get('rating', '—'); reviews = b.get('reviews', 0)
-    sections = brief.get('recommended_sections', [])
-    services = [x for x in sections if x not in {'Hero','Reviews','Contact','FAQ','Why Choose Us','Service Area'}] or ['Emergency Service','Repairs','Maintenance','Free Estimates']
-    cards = ''.join(f'<article><h3>{clean(str(x))}</h3><p>Professional local service with clear communication and fast response.</p></article>' for x in services)
-    gallery = ''.join(f'<img src="{x}" alt="{clean(b["name"])} real business photo" loading="lazy">' for x in photos[1:])
-    return f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{clean(b['name'])} | {clean(b.get('category','Local Service'))}</title><style>*{{box-sizing:border-box}}body{{margin:0;font-family:Inter,Arial;color:#10172a;background:#f6f8fc}}nav{{padding:18px 7%;background:#0b1530;color:#fff;display:flex;justify-content:space-between;align-items:center}}.cta{{background:#f6c33b;color:#111;padding:12px 18px;border-radius:9px;text-decoration:none;font-weight:800}}.hero{{min-height:560px;padding:80px 7%;display:flex;align-items:center;color:#fff;background:linear-gradient(90deg,rgba(5,12,30,.9),rgba(5,12,30,.35)),url('{hero}') center/cover}}.hero h1{{font-size:clamp(40px,6vw,72px);max-width:850px;margin:10px 0 20px}}.hero p{{font-size:20px;max-width:700px;line-height:1.6}}section{{padding:65px 7%;max-width:1250px;margin:auto}}.trust{{background:#fff;border:1px solid #e5e9f2;border-radius:16px;padding:25px;display:flex;justify-content:space-between;align-items:center;gap:20px}}.cards,.gallery{{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}}article{{background:#fff;border:1px solid #e5e9f2;border-radius:16px;padding:25px}}.gallery img{{width:100%;height:230px;object-fit:cover;border-radius:14px}}footer{{padding:35px 7%;background:#0b1530;color:#c4cce0}}@media(max-width:800px){{.cards,.gallery{{grid-template-columns:1fr}}.trust{{display:block}}}}</style></head><body><nav><strong>{clean(b['name'])}</strong><a class="cta" href="tel:{clean(phone)}">Call Now</a></nav><div class="hero"><div><div>{clean(b.get('category','Local Service'))} · {clean(b.get('city',''))}</div><h1>Trusted local service when you need it.</h1><p>Professional service from {clean(b['name'])}. Request service today.</p><a class="cta" href="tel:{clean(phone)}">Request Service</a></div></div><section><div class="trust"><div><h2>Trusted by local customers</h2><p>Google rating: <strong>★ {rating}</strong> · {reviews} reviews</p></div><a class="cta" href="tel:{clean(phone)}">Get a Free Quote</a></div></section><section><h2>Services</h2><div class="cards">{cards}</div></section>{f'<section><h2>Real Business Photos</h2><div class="gallery">{gallery}</div></section>' if gallery else ''}<section><h2>Local Service</h2><p>{clean(b.get('address', b.get('city','')))}</p><p>We serve local customers with responsive service and practical solutions.</p></section><footer>{clean(b['name'])} · {clean(b.get('city',''))}</footer></body></html>'''
+    from app.demo_template import render_demo_html
+    return render_demo_html(data)
 
 def slugify(value):
     s = re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-')
