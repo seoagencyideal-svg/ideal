@@ -18,6 +18,9 @@ jobs:
       - name: Upgrade generator
         run: python scripts/upgrade_demo_generator.py
 
+      - name: Validate Python
+        run: python -m py_compile app/main.py app/demo_template.py
+
       - name: Commit generator upgrade
         run: |
           if git diff --quiet -- app/main.py; then
