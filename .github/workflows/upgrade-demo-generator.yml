@@ -21,14 +21,15 @@ jobs:
       - name: Validate Python
         run: python -m py_compile app/main.py app/demo_template.py
 
-      - name: Commit generator upgrade
+      - name: Commit generator upgrade and validation marker
         run: |
-          if git diff --quiet -- app/main.py; then
-            echo "No generator changes required."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/main.py
-          git commit -m "Upgrade Demo Builder generator [skip ci]"
+          printf 'Advanced Demo Builder generator validated by Python compile.\n' > DEMO_GENERATOR_VALIDATED.txt
+          git add app/main.py DEMO_GENERATOR_VALIDATED.txt
+          if git diff --cached --quiet; then
+            echo "No changes required."
+            exit 0
+          fi
+          git commit -m "Validate advanced Demo Builder generator [skip ci]"
           git push
