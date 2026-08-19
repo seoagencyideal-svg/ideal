@@ -1,0 +1,44 @@
+name: Repair demo template
+
+on:
+  push:
+    paths:
+      - 'app/demo_template.py'
+      - '.github/workflows/repair-demo-template.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair and compile demo template
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/demo_template.py')
+          s = p.read_text()
+          replacements = {
+              '.hero{{min-height:590px;padding:70px 6%}': '.hero{{min-height:590px;padding:70px 6%}}',
+              '.area-card{{display:block}.area-card': '.area-card{{display:block}}.area-card',
+          }
+          old = s
+          for a, b in replacements.items():
+              s = s.replace(a, b)
+          if s != old:
+              p.write_text(s)
+          compile(s, 'app/demo_template.py', 'exec')
+          PY
+      - name: Commit repair
+        run: |
+          if git diff --quiet -- app/demo_template.py; then
+            echo 'No repair needed.'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add app/demo_template.py
+            git commit -m 'Fix demo template f-string braces'
+            git push
+          fi
