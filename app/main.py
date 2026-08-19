@@ -30,7 +30,7 @@ class LeadSearch(BaseModel):
     category: str
     city: str
     limit: int = 10
-    no_website_only: bool = True
+    no_website_only: bool = False
 
 class DemoRequest(BaseModel):
     business: Business
@@ -39,16 +39,42 @@ class DemoRequest(BaseModel):
 class DeployRequest(DemoRequest):
     slug: str = ''
 
+class OutreachRequest(BaseModel):
+    business: Business
+    goal: str = 'Start a sales conversation for the most relevant Ideal SEO Agency service.'
+
 @app.get('/')
 def home():
     return FileResponse('app/static/index.html')
 
+
+def env_keys(name: str):
+    raw = os.getenv(name, '')
+    return [x.strip() for x in re.split(r'[,\n]+', raw) if x.strip()]
+
+
+def get_keys(primary_name: str, pool_name: str):
+    keys = env_keys(pool_name)
+    if not keys:
+        keys = env_keys(primary_name)
+    if not keys:
+        return []
+    primary = os.getenv(primary_name, '').strip()
+    if primary and primary not in keys:
+        keys.insert(0, primary)
+    return list(dict.fromkeys(keys))
+
+
 @app.get('/api/health')
 def health():
+    gemini_keys = get_keys('GEMINI_API_KEY', 'GEMINI_API_KEYS')
+    places_keys = get_keys('GOOGLE_PLACES_API_KEY', 'GOOGLE_PLACES_API_KEYS')
     return {
         'ok': True,
-        'gemini_configured': bool(os.getenv('GEMINI_API_KEY')),
-        'google_places_configured': bool(os.getenv('GOOGLE_PLACES_API_KEY')),
+        'gemini_configured': bool(gemini_keys),
+        'gemini_key_count': len(gemini_keys),
+        'google_places_configured': bool(places_keys),
+        'google_places_key_count': len(places_keys),
         'github_deployment_configured': bool(os.getenv('GITHUB_TOKEN')),
         'github_repo_configured': bool(os.getenv('GITHUB_REPO_OWNER') and os.getenv('GITHUB_REPO_NAME')),
         'pages_base_url': os.getenv('GITHUB_PAGES_BASE_URL', '')
@@ -159,48 +185,158 @@ async def audit(b: Business):
             'issues': issues, 'strengths': strengths,
             'note': 'This is a live technical/on-page snapshot, not a substitute for a full crawler, backlink audit, or Google Search Console data.'}
 
+
+def lead_queries(category: str):
+    base = clean(category)
+    candidates = [base]
+    lower = base.lower()
+    if 'service' not in lower: candidates.append(f'{base} services')
+    if 'contractor' not in lower and any(x in lower for x in ('plumb', 'roof', 'hvac', 'electric', 'floor', 'remodel', 'construction', 'landscap')):
+        candidates.append(f'{base} contractor')
+    elif 'company' not in lower:
+        candidates.append(f'{base} company')
+    return list(dict.fromkeys(candidates))
+
+
 @app.post('/api/leads/search')
 async def search_leads(req: LeadSearch):
-    key = os.getenv('GOOGLE_PLACES_API_KEY')
-    if not key: return {'ok': False, 'error': 'GOOGLE_PLACES_API_KEY is not configured', 'leads': []}
-    limit = max(1, min(req.limit, 20))
-    mask = ','.join(['places.id','places.displayName','places.formattedAddress','places.primaryTypeDisplayName','places.websiteUri','places.nationalPhoneNumber','places.rating','places.userRatingCount','places.googleMapsUri','places.photos'])
-    body = {'textQuery': f'{req.category} in {req.city}', 'pageSize': 20, 'includePureServiceAreaBusinesses': True}
-    async with httpx.AsyncClient(timeout=30) as c:
-        response = await c.post('https://places.googleapis.com/v1/places:searchText', headers={'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': mask}, json=body)
-    if response.status_code >= 400: return {'ok': False, 'error': response.text, 'leads': []}
+    keys = get_keys('GOOGLE_PLACES_API_KEY', 'GOOGLE_PLACES_API_KEYS')
+    if not keys:
+        return {'ok': False, 'error': 'GOOGLE_PLACES_API_KEY is not configured', 'leads': []}
+    limit = max(1, min(req.limit, 100))
+    mask = ','.join(['places.id','places.displayName','places.formattedAddress','places.primaryTypeDisplayName','places.websiteUri','places.nationalPhoneNumber','places.rating','places.userRatingCount','places.googleMapsUri','places.photos','nextPageToken'])
+    seen = set()
     leads = []
-    for place in response.json().get('places', []):
-        display = place.get('displayName', {})
-        website = place.get('websiteUri', '')
-        photos = []
-        for photo in place.get('photos', [])[:6]:
-            if photo.get('name'):
-                photos.append(f"https://places.googleapis.com/v1/{photo['name']}/media?maxWidthPx=1400&key={key}")
-        lead = {'id': place.get('id', ''), 'name': display.get('text', 'Unknown business'), 'category': place.get('primaryTypeDisplayName', {}).get('text', req.category), 'address': place.get('formattedAddress', ''), 'website': website, 'phone': place.get('nationalPhoneNumber', ''), 'rating': place.get('rating'), 'reviews': place.get('userRatingCount'), 'maps_url': place.get('googleMapsUri', ''), 'photos': photos, 'website_missing': not bool(website)}
-        if req.no_website_only and not lead['website_missing']: continue
-        leads.append(lead)
-        if len(leads) >= limit: break
-    return {'ok': True, 'count': len(leads), 'leads': leads, 'no_website_only': req.no_website_only}
+    errors = []
+    key_index = 0
+    queries = lead_queries(req.category)
+
+    async with httpx.AsyncClient(timeout=30) as c:
+        for query in queries:
+            page_token = None
+            for page in range(3):
+                if len(leads) >= limit:
+                    break
+                body = {'textQuery': f'{query} in {req.city}', 'pageSize': 20, 'includePureServiceAreaBusinesses': True}
+                if page_token:
+                    body['pageToken'] = page_token
+                success = False
+                response = None
+                start_key = (key_index + page) % len(keys)
+                for attempt in range(len(keys)):
+                    key = keys[(start_key + attempt) % len(keys)]
+                    try:
+                        response = await c.post('https://places.googleapis.com/v1/places:searchText', headers={'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': mask}, json=body)
+                    except Exception as e:
+                        errors.append(str(e)); continue
+                    if response.status_code < 400:
+                        key_index = (start_key + attempt + 1) % len(keys)
+                        success = True
+                        break
+                    errors.append(f'Google Places HTTP {response.status_code}: {response.text[:180]}')
+                if not success or response is None:
+                    break
+                data = response.json()
+                for place in data.get('places', []):
+                    place_id = place.get('id', '')
+                    if not place_id or place_id in seen:
+                        continue
+                    display = place.get('displayName', {})
+                    website = place.get('websiteUri', '')
+                    if req.no_website_only and website:
+                        continue
+                    photos = []
+                    active_key = keys[(start_key) % len(keys)]
+                    for photo in place.get('photos', [])[:6]:
+                        if photo.get('name'):
+                            photos.append(f"https://places.googleapis.com/v1/{photo['name']}/media?maxWidthPx=1400&key={active_key}")
+                    lead = {'id': place_id, 'name': display.get('text', 'Unknown business'), 'category': place.get('primaryTypeDisplayName', {}).get('text', req.category), 'address': place.get('formattedAddress', ''), 'website': website, 'phone': place.get('nationalPhoneNumber', ''), 'rating': place.get('rating'), 'reviews': place.get('userRatingCount'), 'maps_url': place.get('googleMapsUri', ''), 'photos': photos, 'website_missing': not bool(website)}
+                    seen.add(place_id)
+                    leads.append(lead)
+                    if len(leads) >= limit:
+                        break
+                page_token = data.get('nextPageToken')
+                if not page_token:
+                    break
+                await asyncio_sleep_short()
+            if len(leads) >= limit:
+                break
+
+    return {'ok': True, 'count': len(leads), 'leads': leads, 'no_website_only': req.no_website_only, 'requested': limit, 'queries_used': queries, 'warning': 'Google Text Search returns a maximum of 60 results per query; this finder uses multiple related queries and deduplication to reach larger targets.' if limit > 60 else '', 'errors': errors[-3:]}
+
+
+async def asyncio_sleep_short():
+    await __import__('asyncio').sleep(1.0)
+
 
 @app.post('/api/gemini')
 async def gemini(b: Business):
-    key = os.getenv('GEMINI_API_KEY')
-    if not key: return {'ok': False, 'error': 'GEMINI_API_KEY is not configured'}
+    keys = get_keys('GEMINI_API_KEY', 'GEMINI_API_KEYS')
+    if not keys: return {'ok': False, 'error': 'GEMINI_API_KEY is not configured'}
     model = os.getenv('GEMINI_MODEL', 'gemini-3.6-flash')
     prompt = f'''You are an expert local SEO strategist for Ideal SEO Agency. Analyze this prospect and return concise JSON with keys: summary, website_opportunities, seo_opportunities, suggested_services, outreach_subject, outreach_message. Do not invent facts. Business: {b.model_dump_json()}'''
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
-    try:
-        async with httpx.AsyncClient(timeout=45) as c:
-            r = await c.post(url, headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, json={'contents': [{'parts': [{'text': prompt}]}]})
-    except Exception as e: return {'ok': False, 'error': f'Gemini network error: {e}'}
-    if r.status_code >= 400:
-        try: message = r.json().get('error', {}).get('message') or r.text
-        except Exception: message = r.text
-        return {'ok': False, 'error': f'Gemini API HTTP {r.status_code}: {message}'}
-    try: text = r.json()['candidates'][0]['content']['parts'][0]['text']
-    except Exception as e: return {'ok': False, 'error': f'Unexpected Gemini response: {e}'}
-    return {'ok': True, 'text': text}
+    errors = []
+    async with httpx.AsyncClient(timeout=45) as c:
+        for key in keys:
+            try:
+                r = await c.post(url, headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, json={'contents': [{'parts': [{'text': prompt}]}]})
+            except Exception as e:
+                errors.append(str(e)); continue
+            if r.status_code < 400:
+                try: text = r.json()['candidates'][0]['content']['parts'][0]['text']
+                except Exception as e: return {'ok': False, 'error': f'Unexpected Gemini response: {e}'}
+                return {'ok': True, 'text': text}
+            errors.append(f'Gemini API HTTP {r.status_code}: {r.text[:250]}')
+    return {'ok': False, 'error': errors[-1] if errors else 'Gemini request failed'}
+
+
+@app.post('/api/outreach')
+async def outreach(req: OutreachRequest):
+    keys = get_keys('GEMINI_API_KEY', 'GEMINI_API_KEYS')
+    if not keys:
+        return {'ok': False, 'error': 'GEMINI_API_KEY is not configured'}
+    b = req.business
+    website_state = 'NO WEBSITE' if not b.website else f'WEBSITE: {b.website}'
+    prompt = f'''You are the sales copywriter for Ideal SEO Agency. Create a highly personalized cold outreach draft for this local business.
+
+Business: {b.name}
+Category: {b.category}
+Location: {b.city}
+{website_state}
+Google rating: {b.rating if b.rating is not None else 'unknown'}
+Reviews: {b.reviews if b.reviews is not None else 'unknown'}
+Phone: {b.phone or 'unknown'}
+Audit snapshot: {b.audit or 'not run'}
+Goal: {req.goal}
+
+Agency services available: website design/build, local SEO, Google Business Profile optimization, Google citations, technical SEO, on-page SEO, content writing, guest posting/link building, reputation/review strategy, and conversion optimization.
+
+Rules:
+- Do not invent facts or claim you personally inspected something unless it is present above.
+- If there is no website, make the website + local SEO opportunity the natural lead.
+- If a website exists, do NOT pitch a replacement website automatically. Use the audit/reputation/local SEO/content/link-building opportunities instead.
+- Choose the 1-2 most relevant services, not a generic service list.
+- Keep the email human, concise, professional, and non-spammy (about 120-170 words).
+- Include one low-friction call to action: offer a free quick audit/outline or ask if they want the details.
+- Return valid JSON only with keys: subject, message, recommended_services, reason.
+'''
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{os.getenv("GEMINI_MODEL", "gemini-3.6-flash")}:generateContent'
+    errors = []
+    async with httpx.AsyncClient(timeout=45) as c:
+        for key in keys:
+            try:
+                r = await c.post(url, headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, json={'contents': [{'parts': [{'text': prompt}]}]})
+            except Exception as e:
+                errors.append(str(e)); continue
+            if r.status_code >= 400:
+                errors.append(f'Gemini API HTTP {r.status_code}: {r.text[:250]}'); continue
+            try:
+                text = r.json()['candidates'][0]['content']['parts'][0]['text']
+            except Exception as e:
+                return {'ok': False, 'error': f'Unexpected Gemini response: {e}'}
+            return {'ok': True, 'text': text}
+    return {'ok': False, 'error': errors[-1] if errors else 'Gemini outreach request failed'}
 
 def demo_html(data):
     from app.demo_template import render_demo_html
