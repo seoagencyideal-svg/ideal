@@ -96,6 +96,8 @@ def render_demo_html(data):
     }
     schema = {k: v for k, v in schema.items() if v is not None}
 
+    trust_html = ''.join(f'<div class="trust-item">{x}</div>' for x in trust_items)
+
     return f'''<!doctype html>
 <html lang="en">
 <head>
@@ -117,7 +119,7 @@ def render_demo_html(data):
 <nav><div class="brand">{esc(name)}</div><div class="navlinks"><a href="#services">Services</a><a href="#why">Why Us</a><a href="#reviews">Reviews</a><a href="#area">Service Area</a></div><a class="btn btn-gold" href="{phone_link}">{'Call Now' if phone else 'Get a Quote'}</a></nav>
 <header class="hero" style="{image_style}"><div class="hero-inner"><div class="eyebrow">{esc(category)}{(' · ' + esc(city)) if city else ''}</div><h1>Reliable {esc(category.lower())} when you need it.</h1><p>Get clear information, responsive communication, and a simple way to request service from <strong>{esc(name)}</strong>.</p><div class="hero-actions"><a class="btn btn-gold" href="#quote">{esc(cta_label)}</a><a class="btn" style="background:#fff;color:#0a1730" href="{phone_link}">{'Call ' + esc(phone) if phone else 'Contact Business'}</a></div><div class="hero-note">Local-service website designed around calls, quote requests, trust, and location relevance.</div></div></header>
 <main>
-<div class="wrap"><div class="trust-strip">{''.join(f'<div class="trust-item">{x}</div>' for x in trust_items)}</div></div>
+<div class="wrap"><div class="trust-strip">{trust_html}</div></div>
 <section id="services" class="services"><div class="wrap"><div class="section-head"><h2>Services customers can request</h2><p>Choose the service you need and request current availability or pricing directly.</p></div><div class="service-grid">{service_cards}</div></div></section>
 <section id="why" class="why"><div class="wrap why-grid"><div><div class="section-head"><h2>A better local-service experience</h2><p>The page keeps the most important conversion paths visible while making the business, service, and location context easy to understand.</p></div><div class="checklist"><div class="check"><b>✓</b><span>Clear service-first navigation</span></div><div class="check"><b>✓</b><span>Prominent call and quote actions</span></div><div class="check"><b>✓</b><span>Trust and review information above the fold</span></div><div class="check"><b>✓</b><span>Mobile sticky conversion bar</span></div></div></div><div class="why-box"><h3>Need help now?</h3><p>Use the fastest available contact option below to request service.</p><a class="btn btn-gold" href="{phone_link}">{'Call Now' if phone else 'Request Service'}</a></div></div></section>
 <section id="reviews"><div class="wrap"><div class="section-head"><h2>Local trust at a glance</h2><p>Use verified Google Business Profile information when available. Do not fabricate testimonials or review text.</p></div><div class="review-box">{('<div class="stars">★★★★★</div><h3>Google rating: ' + esc(rating) + '</h3><p class="review-meta">Based on ' + esc(reviews) + ' Google reviews.</p>' if rating is not None and reviews is not None else '<h3>Google review data not supplied</h3><p class="review-meta">Connect the verified Business Profile data to display the live rating and review count.</p>')} {('<a class="btn btn-outline" href="' + esc(maps_link) + '" target="_blank" rel="noopener">View on Google Maps</a>') if maps_link else ''}</div></div></section>
