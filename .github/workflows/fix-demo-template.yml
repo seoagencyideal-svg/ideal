@@ -1,0 +1,42 @@
+name: Fix demo template f-string
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix nested f-string
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/demo_template.py')
+          s = p.read_text()
+          old = "    return f'''<!doctype html>"
+          marker = "    trust_html = ''.join(f'<div class=\"trust-item\">{x}</div>' for x in trust_items)\n\n"
+          if marker not in s:
+              anchor = "    schema = {k: v for k, v in schema.items() if v is not None}\n\n"
+              if anchor not in s:
+                  raise SystemExit('Could not find safe insertion point')
+              s = s.replace(anchor, anchor + marker, 1)
+          old_expr = "{''.join(f'<div class=\"trust-item\">{x}</div>' for x in trust_items)}"
+          if old_expr not in s:
+              raise SystemExit('Nested trust f-string expression not found')
+          s = s.replace(old_expr, '{trust_html}', 1)
+          p.write_text(s)
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/demo_template.py
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix demo template nested f-string'
+          git push
