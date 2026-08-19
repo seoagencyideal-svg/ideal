@@ -50,6 +50,7 @@ def health():
         'gemini_configured': bool(os.getenv('GEMINI_API_KEY')),
         'google_places_configured': bool(os.getenv('GOOGLE_PLACES_API_KEY')),
         'github_deployment_configured': bool(os.getenv('GITHUB_TOKEN')),
+        'github_repo_configured': bool(os.getenv('GITHUB_REPO_OWNER') and os.getenv('GITHUB_REPO_NAME')),
         'pages_base_url': os.getenv('GITHUB_PAGES_BASE_URL', '')
     }
 
@@ -220,7 +221,8 @@ async def github_put_file(path, content, message):
     token = os.getenv('GITHUB_TOKEN')
     owner = os.getenv('GITHUB_REPO_OWNER', 'seoagencyideal-svg')
     repo = os.getenv('GITHUB_REPO_NAME', 'ideal')
-    if not token: raise RuntimeError('GITHUB_TOKEN is not configured on the server.')
+    if not token:
+        raise RuntimeError('GITHUB_TOKEN is not configured on the server. Add it to the API hosting environment, then redeploy the API.')
     api = f'https://api.github.com/repos/{owner}/{repo}/contents/{path}'
     headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
     encoded = base64.b64encode(content.encode('utf-8')).decode('ascii')
@@ -247,12 +249,15 @@ def create_demo(req: DemoRequest):
 async def deploy(req: DeployRequest):
     if not req.business.name: return {'ok': False, 'error': 'Business name is required'}
     slug = slugify(req.slug or req.business.name)
-    html = demo_html({'business': req.business.model_dump(), 'brief': req.brief})
+    try:
+        html = demo_html({'business': req.business.model_dump(), 'brief': req.brief})
+    except Exception as e:
+        return {'ok': False, 'error': f'Demo template generation failed: {type(e).__name__}: {e}'}
     path = f'public/sites/{slug}/index.html'
     try:
         commit = await github_put_file(path, html, f'Deploy website: {req.business.name}')
     except Exception as e:
-        return {'ok': False, 'error': str(e)}
+        return {'ok': False, 'error': f'GitHub deployment failed: {type(e).__name__}: {e}'}
     return {'ok': True, 'slug': slug, 'path': path, 'commit': commit, 'url': f'{pages_base_url()}/sites/{slug}/', 'status': 'committed; GitHub Pages deployment will run from the main branch'}
 
 @app.get('/demo/{demo_id}', response_class=HTMLResponse)
