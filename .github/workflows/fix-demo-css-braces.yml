@@ -1,0 +1,44 @@
+name: Fix demo template CSS braces
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair malformed CSS braces
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/demo_template.py')
+          s = p.read_text(encoding='utf-8')
+          replacements = {
+              '.hero{{min-height:590px;padding:70px 6%}.service-grid': '.hero{{min-height:590px;padding:70px 6%}}.service-grid',
+              '.area-card{{display:block}.area-card .btn': '.area-card{{display:block}}.area-card .btn',
+          }
+          changed = False
+          for old, new in replacements.items():
+              if old in s:
+                  s = s.replace(old, new)
+                  changed = True
+          p.write_text(s, encoding='utf-8')
+          if not changed:
+              print('No CSS brace repair needed')
+          PY
+      - name: Validate Python
+        run: python -m py_compile app/main.py app/demo_template.py
+      - name: Commit repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/demo_template.py
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix malformed CSS braces in demo template'
+          git push
