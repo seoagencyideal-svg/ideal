@@ -47,6 +47,7 @@ def render_demo_html(data):
     testimonials = brief.get('testimonials') if isinstance(brief.get('testimonials'), list) else []
     projects = brief.get('projects') if isinstance(brief.get('projects'), list) else []
     before_after = brief.get('before_after') if isinstance(brief.get('before_after'), list) else []
+    team = brief.get('team') if isinstance(brief.get('team'), list) else []
     faqs = brief.get('faqs') if isinstance(brief.get('faqs'), list) else []
     seo_focus = [str(x) for x in (brief.get('seo_focus') or [])][:8]
     opportunities = [str(x) for x in (brief.get('demo_opportunities') or [])][:6]
